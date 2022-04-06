@@ -1,0 +1,98 @@
+1.
+
+»формаци€ по клиенту, его денежным активам, обща€ сумма денежных средст и суммы кредита, если есть.
+
+CREATE VIEW `personal_bank`.`user_info` AS
+
+SELECT
+ 
+	u.id,
+
+	CONCAT(p.firstname, ' ', p.lastname) AS user_name,
+
+	u.email,
+
+	u.phone
+,
+	p.gender,
+
+	p.birthday,
+
+	timestampdiff(YEAR, p.birthday, NOW()) AS age,
+
+	c.card_sum,
+
+	IF(deposit_sum IS NULL, 0.00, deposit_sum) AS dep,
+
+	broker_sum2(p.id_profile_user) AS broker_sum,
+
+	total_sum(p.id_profile_user) AS total_sum,
+
+	IF(cr.credit_sum IS NULL, 0.00, credit_sum) AS cred
+
+FROM personal_bank.profile p
+
+JOIN personal_bank.`user` u ON u.id = p.id_profile_user
+
+JOIN personal_bank.card c ON c.card_id_profile_id = p.id_profile_user
+
+LEFT JOIN personal_bank.deposit d ON d.deposit_id_profile_id = p.id_profile_user
+
+LEFT JOIN personal_bank.credit cr ON cr.credit_id_profile_id = p.id_profile_user
+
+
+2. 
+Ўесть самых попул€рных по количеству заключнных контрактов служб по предоставлению коммунальных и проч. услуг населению, и обща€ сумма выставленных счетов каждой службы на данный момент времени.
+
+CREATE VIEW `personal_bank`.`pop_com_services` AS
+
+SELECT
+
+	id_com_services,
+
+	com_services_name,
+
+	com_services_inn,
+
+	contract,
+
+	COUNT(*),
+
+	SUM(receipt_sum)
+
+FROM personal_bank.com_services
+
+JOIN receipt ON receipt.receipt_id_com_services_id = com_services.id_com_services
+
+GROUP BY id_com_services
+
+ORDER BY COUNT(*) DESC
+
+LIMIT 6
+
+3.
+ƒес€ть самых попул€рных акций.
+CREATE VIEW `personal_bank`.`pop_share` AS
+
+SELECT 
+
+	id_share,
+share_code,
+
+	share_fullname,
+
+	share_isin,
+
+	share_price_now,
+
+	brocer_account_my_share,
+
+	quantity_my_share
+
+FROM personal_bank.share
+
+JOIN my_share ON my_share.share_my_share = `share`.id_share
+
+ORDER BY quantity_my_share DESC
+
+LIMIT 10

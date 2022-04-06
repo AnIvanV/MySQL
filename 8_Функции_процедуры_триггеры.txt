@@ -1,0 +1,230 @@
+--- ТРАНЗАКЦИМ ---
+Перевод денежных средств со влада одного клиента на карту другого клиента по номеру телефона
+
+START TRANSACTION;
+
+UPDATE deposit SET deposit_sum = deposit_sum - 1000 WHERE deposit_id_profile_id = 59;
+
+UPDATE card SET card_sum = card_sum + 1000 WHERE card_id_profile_id = (SELECT id_profile_user FROM `profile` WHERE id_profile_user = (SELECT id FROM `user` WHERE phone = 79637862392));
+
+COMMIT;
+
+
+--- ФУНКЦИИ ---
+
+1.
+Общая сумма наличных и акций на брокерском счете на сегодня.
+DELIMITER $$
+
+
+CREATE FUNCTION `personal_bank`.`broker_sum2` (id_user INT) 
+
+RETURNS DECIMAL(64,2)
+
+READS SQL DATA
+
+BEGIN
+
+DECLARE full_bsum2 DECIMAL(64,2);
+
+
+	
+	SET full_bsum2 = (SELECT broker_cash + (SELECT SUM(share_price_now * quantity_my_share) FROM my_share JOIN `share` ON `share`.id_share = my_share.share_my_share WHERE my_share.brocer_account_my_share = broker_account.broker_id_profile_id)
+
+	FROM personal_bank.broker_account
+
+	WHERE broker_id_profile_id = id_user);
+
+
+RETURN IF(full_bsum2 IS NULL, 0.00, full_bsum2);
+END
+
+
+2.
+Общая сумма клиента по всем счетам, кроме кредита
+
+DELIMITER $$
+
+
+CREATE FUNCTION `personal_bank`.`total_sum` (id_user INT)
+
+RETURNS DECIMAL(64,2)
+
+    READS SQL DATA
+
+BEGIN
+
+	DECLARE full_sum DECIMAL(64,2);
+
+
+
+	SET full_sum = (SELECT card_sum + IF(deposit_sum IS NULL, 0.00, deposit_sum) + broker_sum2(id_profile_user)
+
+	FROM personal_bank.profile p
+
+
+	JOIN personal_bank.card c ON c.card_id_profile_id = p.id_profile_user
+
+	LEFT JOIN personal_bank.deposit d ON d.deposit_id_profile_id = p.id_profile_user
+
+	WHERE id_profile_user = id_user);
+
+RETURN full_sum;
+
+END
+
+
+3.
+В каком размере пользователь уплатит налог(13%), если продаст акцию repellat сегодня.
+Если пользователь владел акцией более 3х лет, то налог с дохода платить не нужно.
+Если акция продана в убыок, то налог также платить не нужно.
+(в силу специфики наполнения базы данными, эта акция ест только у пользователя id = 1)
+
+DELIMITER $$
+
+
+CREATE FUNCTION `personal_bank`.`share_tax` (id_user INT)
+
+RETURNS DECIMAL(64,2)
+
+READS SQL DATA
+
+
+BEGIN
+
+DECLARE tax DECIMAL(64,2);
+
+DECLARE profit DECIMAL(64,2);
+
+DECLARE share_time INT;
+
+
+
+SET share_time = (SELECT timestampdiff(year, purchase_day, NOW())  FROM personal_bank.my_share WHERE brocer_account_my_share = id_user AND share_my_share = (SELECT id_share FROM `share` WHERE share_code = 'repellat'));
+
+
+
+SET profit = (SELECT (quantity_my_share * (SELECT share_price_now FROM `share` WHERE `share`.id_share = my_share.share_my_share)) - (purchase_price * quantity_my_share)
+FROM personal_bank.my_share WHERE brocer_account_my_share = id_user AND share_my_share = (SELECT id_share FROM `share` WHERE share_code = 'repellat'));
+
+
+
+IF share_time >= 3 THEN SET tax = 0;
+
+ELSE 
+IF profit < 0 THEN SET tax = 0;
+
+ELSE
+ SET tax = profit * 0.13;
+
+END IF;
+
+END IF;
+
+
+
+RETURN tax;
+
+
+END
+
+--- ПРОЦЕДУРЫ ---
+№1 Хватит ли средств конкретному клиенту на покрытие кредита из его средств, размещенных на его счетах
+
+
+DELIMITER $$
+
+
+CREATE PROCEDURE `personal_bank`.`close_credit` (IN user_id INT)
+
+BEGIN
+
+SELECT
+	id_profile_user,
+
+	CONCAT(firstname, ' ', lastname) AS user_name,
+	card_sum + IF(deposit_sum IS NULL, 0.00, deposit_sum) + IF(broker_cash IS NULL, 0.00, broker_cash) + IFNULL((SELECT SUM(share_price_now * quantity_my_share) FROM my_share JOIN `share` ON `share`.id_share = my_share.share_my_share
+ WHERE my_share.brocer_account_my_share = ba.broker_id_profile_id), 0.00) AS total_sum,
+
+	IF(credit_sum IS NULL, 0.00, credit_sum) AS cred,
+ 
+	total_sum(id_profile_user) - IF(credit_sum IS NULL, 0.00, credit_sum) AS debit
+FROM personal_bank.profile p
+    
+JOIN personal_bank.card c ON c.card_id_profile_id = p.id_profile_user
+    
+LEFT JOIN personal_bank.deposit d ON d.deposit_id_profile_id = p.id_profile_user
+    
+LEFT JOIN personal_bank.credit cr ON cr.credit_id_profile_id = p.id_profile_user
+    
+LEFT JOIN personal_bank.broker_account ba ON ba.broker_id_profile_id = p.id_profile_user
+
+WHERE p.id_profile_user = user_id;
+
+END
+
+
+
+№2
+Список пользователей, достигших 14 лет, для sms поздравления с днем рождения сегодня.
+Имя, Фамилия и номер телефона.
+
+CALL happy_birthday (NOW())
+
+
+
+DELIMITER $$
+
+
+CREATE PROCEDURE `personal_bank`.`happy_birthday`(IN today DATETIME)
+
+BEGIN
+
+SELECT
+	
+birthday,
+
+	CONCAT(firstname, ' ', lastname) AS user_name,
+
+	phone
+
+FROM personal_bank.profile
+
+JOIN user ON user.id = profile.id_profile_user
+
+WHERE
+ 
+	birthday LIKE CONCAT('%', SUBSTRING(NOW(), 5, 6)) AND
+ 
+	timestampdiff(year, birthday, NOW()) > 14;
+
+END
+
+--- ТРИГГЕРЫ ----
+
+Сумма платежа не должна превышать сумму кредита.
+
+DELIMITER $$
+
+
+CREATE TRIGGER `credit_BUPD` BEFORE UPDATE ON credit FOR EACH ROW
+
+BEGIN
+
+IF NEW.credit_sum > OLD.credit_sum THEN
+
+SIGNAL SQLSTATE '45000' 
+
+SET MESSAGE_TEXT = 'Your payment is more than a credit';
+
+END IF;
+
+END
+
+
+Проверка.
+UPDATE `personal_bank`.`credit` 
+SET
+ `credit_sum` = 200001 
+WHERE credit_id_profile_id = 99;
+

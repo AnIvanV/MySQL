@@ -1,0 +1,124 @@
+№1.
+1.1.
+Список пользователей, их email'ы и номера их брокерских договоров, которые потенциально могут получить статус квалифицированнрого инвестора, т.е у кого сумма наличных на брокерском счете и активов составляет не менее 6.000.000 руб. 
+Отсортированы по убыванию суммы на счете.
+
+
+SELECT
+
+	(SELECT id_profile_user FROM personal_bank.profile WHERE broker_account.broker_id_profile_id = profile.id_profile_user) AS user_id,
+
+	(SELECT CONCAT(firstname, ' ', lastname) FROM personal_bank.profile WHERE broker_account.broker_id_profile_id = profile.id_profile_user) AS user_name,
+
+
+	(SELECT email FROM personal_bank.user WHERE user.id = broker_account.broker_id_profile_id) AS email,
+	broker_contract,
+
+	broker_cash,
+	
+(SELECT SUM(share_price_now * quantity_my_share) FROM my_share JOIN `share` ON `share`.id_share = my_share.share_my_share
+		WHERE my_share.brocer_account_my_share = broker_account.broker_id_profile_id) AS activ_sum,
+
+	broker_cash + (SELECT SUM(share_price_now * quantity_my_share) FROM my_share JOIN `share` ON `share`.id_share = my_share.share_my_share
+		WHERE my_share.brocer_account_my_share = broker_account.broker_id_profile_id) AS broker_sum
+
+FROM personal_bank.broker_account
+
+WHERE
+
+	broker_cash + (SELECT SUM(share_price_now * quantity_my_share) FROM my_share JOIN `share` ON `share`.id_share = my_share.share_my_share
+		WHERE my_share.brocer_account_my_share = broker_account.broker_id_profile_id) >= 6000000
+
+ORDER BY broker_sum DESC;
+
+1.2.
+Количество этих людей
+SELECT
+	
+COUNT(*)
+
+FROM personal_bank.broker_account
+
+WHERE
+
+	broker_cash + (SELECT SUM(price_now * quantity_my_share) FROM personal_bank.my_share WHERE my_share.brocer_account_my_share = broker_account.broker_id_profile_id) >= 6000000
+;
+
+№3
+3.1
+Общее количество должников за коммунальные услуги и их список поименно.
+
+
+SELECT
+
+	`status`,
+
+	COUNT(receipt_id_profile_id),
+
+	GROUP_CONCAT((SELECT CONCAT(firstname, ' ', lastname) FROM personal_bank.profile WHERE receipt.receipt_id_profile_id  = profile.id_profile_user) SEPARATOR ', ') AS list_debtors
+
+FROM personal_bank.receipt 
+
+WHERE `status` = 0;
+
+3.2
+Номера договоров и имена клиентов не оплативших счета конретной службы.
+SELECT
+
+	`status`,
+
+	com_services_name,
+
+	contract,
+	
+receipt_sum,
+
+	(SELECT CONCAT(firstname, ' ', lastname) FROM personal_bank.profile WHERE r.receipt_id_profile_id  = profile.id_profile_user) AS user_name
+FROM personal_bank.receipt r
+
+JOIN com_services cs 
+	
+	ON r.receipt_id_com_services_id = cs.id_com_services AND cs.com_services_inn = 5356477816
+
+WHERE `status` = 0;
+
+
+№4
+Акциями каких компаний владеют женщины, у которых нет кредитов и долгов по оплате ЖКХ.
+
+SELECT DISTINCT
+	
+id_profile_user,
+
+	gender,
+
+	broker_contract,
+
+	share_code,
+
+	share_fullname,
+
+	share_isin
+
+FROM personal_bank.profile 
+
+LEFT JOIN credit ON credit.credit_contract IS NULL
+
+JOIN receipt ON receipt.receipt_id_profile_id = profile.id_profile_user AND `status` = 1
+
+JOIN broker_account ON profile.id_profile_user = broker_account.broker_id_profile_id
+
+JOIN my_share ON my_share.brocer_account_my_share = broker_account.broker_id_profile_id
+
+JOIN `share` ON `share`.id_share = my_share.share_my_share
+
+WHERE gender = 'f' 
+
+
+
+
+
+
+
+
+
